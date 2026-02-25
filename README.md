@@ -7,6 +7,7 @@
 - **Column**：按列增删改（底层 ALTER TABLE）
 - **Row/Cell**：创建/更新/删除单行和批量行
 - **Index**：按列创建/删除索引
+- **Relationship**：虚拟列类型，支持一对多、多对一/一对一；ListRows 时可指定 `expand_column_ids` 带出子表/关联表数据
 - 同时支持 **gRPC** 与 **HTTP(JSON)**（通过 grpc-gateway）
 - 支持 **单库模式** 与 **多租户（数据库级隔离）模式**
 
@@ -48,9 +49,9 @@ make proto
 
 ```bash
 export TENANT_MODE=single
-export SINGLE_DATABASE_URL='postgresql://treelab:treelab@0.0.0.0:5432/tables'
+export SINGLE_DATABASE_URL='postgresql://postgres:postgres@0.0.0.0:5432/tables'
 # 或者使用 DATABASE_URL（当 SINGLE_DATABASE_URL 未设置时）
-# export DATABASE_URL='postgresql://treelab:treelab@0.0.0.0:5432/tables'
+# export DATABASE_URL='postgresql://postgres:postgres@0.0.0.0:5432/tables'
 
 make run
 ```
@@ -64,13 +65,13 @@ make run
 
 每个租户使用一个独立的 Postgres 数据库，例如连接串为：
 
-`postgresql://treelab:treelab@0.0.0.0:5432/<tenant_id>`
+`postgresql://postgres:postgres@0.0.0.0:5432/<tenant_id>`
 
 配置环境变量：
 
 ```bash
 export TENANT_MODE=multi
-export TENANT_DSN_TEMPLATE='postgresql://treelab:treelab@0.0.0.0:5432/%s'
+export TENANT_DSN_TEMPLATE='postgresql://postgres:postgres@0.0.0.0:5432/%s'
 
 make run
 ```
@@ -78,7 +79,7 @@ make run
 访问时在 HTTP 头或 gRPC metadata 中带上租户 ID：
 
 - HTTP 头：`X-Tenant-Id: tenant_a`
-- 将自动连接到：`postgresql://treelab:treelab@0.0.0.0:5432/tenant_a`
+- 将自动连接到：`postgresql://postgres:postgres@0.0.0.0:5432/tenant_a`
 
 每个租户数据库都会独立创建自身的：
 
@@ -101,6 +102,24 @@ make run
 - 根据列信息生成表单并创建 Record（Row）
 
 如果在多租户模式下测试，可以使用浏览器开发者工具或自行扩展该页面，在每次 `fetch` 请求中添加 `X-Tenant-Id` 头。
+
+## Relationship 与展开查询（一对多 / 一对一）
+
+列类型可为 **relationship**（虚拟列，无实际 PG 列）。列 `config` 约定：
+
+- **一对多（当前表为主表，子表多行指向当前行）**
+  - `target_table_id`：子表 id
+  - `link_column_id`：子表中「存当前行 id」的外键列 id  
+  - 查询时按「子表. link 列 = 当前行 id」查出所有子行
+
+- **多对一 / 一对一（当前表存外键指向目标表）**
+  - `target_table_id`：目标表 id
+  - `target_column_id`：当前表中存目标行 id 的列 id  
+  - 查询时用当前行该列的值作为目标表 `id` 查一条
+
+**ListRows** 支持 `expand_column_ids`（relationship 列 id 列表）。返回的每行 `cells` 中，对应列的值为 JSON：`{ "rows": [ { "id", "cells" }, ... ] }`，一对多为多元素，一对一为单元素。
+
+HTTP 示例：`GET /v1/tables/{table_id}/rows?expand_column_ids=col-uuid-1&expand_column_ids=col-uuid-2`
 
 ## 常用命令汇总
 

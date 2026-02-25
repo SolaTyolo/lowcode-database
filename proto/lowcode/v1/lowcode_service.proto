@@ -64,12 +64,21 @@ message Value {
 }
 
 // 一行数据，cells 的 key = column_id
+// 当 ListRows 指定了 expand_column_ids 时，对应 relationship 列的 cell 值为 json_value：{ "rows": [ { "id", "cells" }, ... ] }，一对多为多项，一对一为一项
 message Row {
   string id = 1;
   map<string, Value> cells = 2;
 }
 
 service LowcodeService {
+  // ------ Tenant ------
+  rpc CreateTenant(CreateTenantRequest) returns (CreateTenantResponse) {
+    option (google.api.http) = {
+      post: "/v1/tenants"
+      body: "*"
+    };
+  }
+
   // ------ Type ------
   rpc CreateType(CreateTypeRequest) returns (CreateTypeResponse) {
     option (google.api.http) = {
@@ -209,6 +218,16 @@ service LowcodeService {
   }
 }
 
+// -------- Tenant --------
+message CreateTenantRequest {
+  // 新 tenant 的唯一标识，用于拼接数据库名（由后端配置决定具体格式）
+  string id = 1;
+}
+
+message CreateTenantResponse {
+  string id = 1;
+}
+
 // -------- Type --------
 message CreateTypeRequest {
   string name = 1;
@@ -336,6 +355,8 @@ message ListRowsRequest {
   string table_id = 1;
   int32 page_size = 2;
   string page_token = 3;
+  // 要展开的 relationship 列 id 列表，返回时每行会带对应子表/关联表数据（一对多=多行，一对一=单行）
+  repeated string expand_column_ids = 4;
 }
 
 message ListRowsResponse {

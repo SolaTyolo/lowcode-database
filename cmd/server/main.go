@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
+	"github.com/solat/lowcode-database/internal/config"
 	"github.com/solat/lowcode-database/internal/db"
 	"github.com/solat/lowcode-database/internal/service"
 	"github.com/solat/lowcode-database/internal/tenant"
@@ -24,16 +25,21 @@ import (
 )
 
 func main() {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("load config: %v", err)
+	}
+
 	var (
-		grpcAddr = flag.String("grpc-addr", ":9090", "gRPC listen address")
-		httpAddr = flag.String("http-addr", ":8080", "HTTP (grpc-gateway + static) listen address")
+		grpcAddr = flag.String("grpc-addr", cfg.GRPCAddr, "gRPC listen address")
+		httpAddr = flag.String("http-addr", cfg.HTTPAddr, "HTTP (grpc-gateway + static) listen address")
 	)
 	flag.Parse()
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	tenantMgr, err := db.NewTenantManager(ctx)
+	tenantMgr, err := db.NewTenantManager(ctx, cfg)
 	if err != nil {
 		log.Fatalf("init tenant manager: %v", err)
 	}
@@ -49,7 +55,7 @@ func main() {
 	})
 
 	grpcServer := grpc.NewServer(unary)
-	lcSvc := service.NewLowcodeService(tenantMgr)
+	lcSvc := service.NewLowcodeService(tenantMgr, cfg.MaxRow)
 	lowcodev1.RegisterLowcodeServiceServer(grpcServer, lcSvc)
 
 	go func() {
