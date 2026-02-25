@@ -1,0 +1,392 @@
+syntax = "proto3";
+
+package lowcode.v1;
+
+option go_package = "github.com/solat/lowcode-database/gen/lowcode/v1;lowcodev1";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+// 基础类型定义，用于列类型（text/number/json 等）
+message Type {
+  string id = 1;
+  string name = 2;
+  string pg_type = 3;
+  google.protobuf.Struct config = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message Table {
+  string id = 1;
+  string name = 2;
+  string schema_name = 3;
+  string table_name = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message Column {
+  string id = 1;
+  string table_id = 2;
+  string name = 3;
+  string type_id = 4;
+  string pg_column = 5;
+  bool is_nullable = 6;
+  int32 position = 7;
+  google.protobuf.Struct config = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+message Index {
+  string id = 1;
+  string table_id = 2;
+  string name = 3;
+  string pg_index = 4;
+  repeated string column_ids = 5;
+  bool is_unique = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+// 通用值类型
+message Value {
+  oneof kind {
+    string string_value = 1;
+    double number_value = 2;
+    bool bool_value = 3;
+    google.protobuf.Timestamp timestamp_value = 4;
+    bytes bytes_value = 5;
+    google.protobuf.Struct json_value = 6;
+  }
+}
+
+// 一行数据，cells 的 key = column_id
+message Row {
+  string id = 1;
+  map<string, Value> cells = 2;
+}
+
+service LowcodeService {
+  // ------ Type ------
+  rpc CreateType(CreateTypeRequest) returns (CreateTypeResponse) {
+    option (google.api.http) = {
+      post: "/v1/types"
+      body: "*"
+    };
+  }
+
+  rpc ListTypes(ListTypesRequest) returns (ListTypesResponse) {
+    option (google.api.http) = {
+      get: "/v1/types"
+    };
+  }
+
+  rpc DeleteType(DeleteTypeRequest) returns (DeleteTypeResponse) {
+    option (google.api.http) = {
+      delete: "/v1/types/{id}"
+    };
+  }
+
+  // ------ Table ------
+  rpc CreateTable(CreateTableRequest) returns (CreateTableResponse) {
+    option (google.api.http) = {
+      post: "/v1/tables"
+      body: "*"
+    };
+  }
+
+  // 获取所有 table
+  rpc DeleteTable(DeleteTableRequest) returns (DeleteTableResponse) {
+    option (google.api.http) = {
+      delete: "/v1/tables/{id}"
+    };
+  }
+
+  rpc ListTables(ListTablesRequest) returns (ListTablesResponse) {
+    option (google.api.http) = {
+      get: "/v1/tables"
+    };
+  }
+
+  // 获取单个 table 及其所有 columns 和 indexes
+  rpc GetTableSchema(GetTableSchemaRequest) returns (GetTableSchemaResponse) {
+    option (google.api.http) = {
+      get: "/v1/tables/{table_id}/schema"
+    };
+  }
+
+  // ------ Column ------
+  rpc AddColumn(AddColumnRequest) returns (AddColumnResponse) {
+    option (google.api.http) = {
+      post: "/v1/tables/{table_id}/columns"
+      body: "*"
+    };
+  }
+
+  rpc UpdateColumn(UpdateColumnRequest) returns (UpdateColumnResponse) {
+    option (google.api.http) = {
+      patch: "/v1/columns/{id}"
+      body: "*"
+    };
+  }
+
+  rpc DeleteColumn(DeleteColumnRequest) returns (DeleteColumnResponse) {
+    option (google.api.http) = {
+      delete: "/v1/columns/{id}"
+    };
+  }
+
+  rpc ListColumns(ListColumnsRequest) returns (ListColumnsResponse) {
+    option (google.api.http) = {
+      get: "/v1/tables/{table_id}/columns"
+    };
+  }
+
+  // ------ Row / Cell ------
+  rpc CreateRow(CreateRowRequest) returns (CreateRowResponse) {
+    option (google.api.http) = {
+      post: "/v1/tables/{table_id}/rows"
+      body: "*"
+    };
+  }
+
+  rpc UpdateRow(UpdateRowRequest) returns (UpdateRowResponse) {
+    option (google.api.http) = {
+      patch: "/v1/tables/{table_id}/rows/{row_id}"
+      body: "*"
+    };
+  }
+
+  rpc DeleteRow(DeleteRowRequest) returns (DeleteRowResponse) {
+    option (google.api.http) = {
+      delete: "/v1/tables/{table_id}/rows/{row_id}"
+    };
+  }
+
+  rpc ListRows(ListRowsRequest) returns (ListRowsResponse) {
+    option (google.api.http) = {
+      get: "/v1/tables/{table_id}/rows"
+    };
+  }
+
+  // 批量 upsert
+  rpc BulkUpsertRows(BulkUpsertRowsRequest) returns (BulkUpsertRowsResponse) {
+    option (google.api.http) = {
+      post: "/v1/tables/{table_id}/rows:bulkUpsert"
+      body: "*"
+    };
+  }
+
+  // 批量删除
+  rpc BulkDeleteRows(BulkDeleteRowsRequest) returns (BulkDeleteRowsResponse) {
+    option (google.api.http) = {
+      post: "/v1/tables/{table_id}/rows:bulkDelete"
+      body: "*"
+    };
+  }
+
+  // ------ Index ------
+  rpc CreateIndex(CreateIndexRequest) returns (CreateIndexResponse) {
+    option (google.api.http) = {
+      post: "/v1/tables/{table_id}/indexes"
+      body: "*"
+    };
+  }
+
+  rpc DeleteIndex(DeleteIndexRequest) returns (DeleteIndexResponse) {
+    option (google.api.http) = {
+      delete: "/v1/indexes/{id}"
+    };
+  }
+
+  rpc ListIndexes(ListIndexesRequest) returns (ListIndexesResponse) {
+    option (google.api.http) = {
+      get: "/v1/tables/{table_id}/indexes"
+    };
+  }
+}
+
+// -------- Type --------
+message CreateTypeRequest {
+  string name = 1;
+  string pg_type = 2;
+  google.protobuf.Struct config = 3;
+}
+
+message CreateTypeResponse {
+  Type type = 1;
+}
+
+message ListTypesRequest {}
+
+message ListTypesResponse {
+  repeated Type types = 1;
+}
+
+message DeleteTypeRequest {
+  string id = 1;
+}
+
+message DeleteTypeResponse {}
+
+// -------- Table --------
+message CreateTableRequest {
+  string name = 1;
+  string schema_name = 2;
+}
+
+message CreateTableResponse {
+  Table table = 1;
+}
+
+message DeleteTableRequest {
+  string id = 1;
+}
+
+message DeleteTableResponse {}
+
+message ListTablesRequest {}
+
+message ListTablesResponse {
+  repeated Table tables = 1;
+}
+
+// 获取 table + columns + indexes
+message GetTableSchemaRequest {
+  string table_id = 1;
+}
+
+message GetTableSchemaResponse {
+  Table table = 1;
+  repeated Column columns = 2;
+  repeated Index indexes = 3;
+}
+
+// -------- Column --------
+message AddColumnRequest {
+  string table_id = 1;
+  string name = 2;
+  string type_id = 3;
+  bool is_nullable = 4;
+  int32 position = 5;
+  google.protobuf.Struct config = 6;
+}
+
+message AddColumnResponse {
+  Column column = 1;
+}
+
+message UpdateColumnRequest {
+  string id = 1;
+  string name = 2;
+  bool is_nullable = 3;
+  int32 position = 4;
+  google.protobuf.Struct config = 5;
+}
+
+message UpdateColumnResponse {
+  Column column = 1;
+}
+
+message DeleteColumnRequest {
+  string id = 1;
+}
+
+message DeleteColumnResponse {}
+
+message ListColumnsRequest {
+  string table_id = 1;
+}
+
+message ListColumnsResponse {
+  repeated Column columns = 1;
+}
+
+// -------- Row / Cell --------
+message CreateRowRequest {
+  string table_id = 1;
+  map<string, Value> cells = 2;
+}
+
+message CreateRowResponse {
+  Row row = 1;
+}
+
+message UpdateRowRequest {
+  string table_id = 1;
+  string row_id = 2;
+  map<string, Value> cells = 3;
+}
+
+message UpdateRowResponse {
+  Row row = 1;
+}
+
+message DeleteRowRequest {
+  string table_id = 1;
+  string row_id = 2;
+}
+
+message DeleteRowResponse {}
+
+message ListRowsRequest {
+  string table_id = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListRowsResponse {
+  repeated Row rows = 1;
+  string next_page_token = 2;
+}
+
+message BulkUpsertRowItem {
+  string row_id = 1; // 为空=insert，否则=update
+  map<string, Value> cells = 2;
+}
+
+message BulkUpsertRowsRequest {
+  string table_id = 1;
+  repeated BulkUpsertRowItem items = 2;
+}
+
+message BulkUpsertRowsResponse {
+  repeated Row rows = 1;
+}
+
+message BulkDeleteRowsRequest {
+  string table_id = 1;
+  repeated string row_ids = 2;
+}
+
+message BulkDeleteRowsResponse {}
+
+// -------- Index --------
+message CreateIndexRequest {
+  string table_id = 1;
+  string name = 2;
+  repeated string column_ids = 3;
+  bool is_unique = 4;
+}
+
+message CreateIndexResponse {
+  Index index = 1;
+}
+
+message DeleteIndexRequest {
+  string id = 1;
+}
+
+message DeleteIndexResponse {}
+
+message ListIndexesRequest {
+  string table_id = 1;
+}
+
+message ListIndexesResponse {
+  repeated Index indexes = 1;
+}
+

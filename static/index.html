@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>Lowcode DB Demo</title>
+  <style>
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif; margin: 20px; }
+    h2 { margin-top: 24px; }
+    label { display: inline-block; min-width: 100px; }
+    input, select, button { margin: 4px 0; padding: 4px 8px; }
+    table { border-collapse: collapse; margin-top: 8px; }
+    th, td { border: 1px solid #ccc; padding: 4px 8px; }
+    .section { border: 1px solid #ddd; padding: 12px; margin-bottom: 16px; border-radius: 6px; }
+    .log { white-space: pre-wrap; background: #f7f7f7; padding: 8px; border-radius: 4px; max-height: 200px; overflow: auto; }
+  </style>
+</head>
+<body>
+  <h1>Lowcode DB 测试页面</h1>
+
+  <div class="section">
+    <h2>1. 创建 Table</h2>
+    <label>Table 名称</label>
+    <input id="tableName" placeholder="例如: tasks" />
+    <button id="btnCreateTable">创建 Table</button>
+    <div>当前 Table ID: <span id="currentTableId">(尚未创建)</span></div>
+  </div>
+
+  <div class="section">
+    <h2>2. 添加 Column</h2>
+    <div>先创建 Table，再添加列。</div>
+    <label>列名</label>
+    <input id="columnName" placeholder="例如: title" /><br />
+    <label>类型 ID</label>
+    <input id="columnTypeId" placeholder="lc_types.id，例如: text-type-id" /><br />
+    <label>可空</label>
+    <select id="columnNullable">
+      <option value="true">true</option>
+      <option value="false">false</option>
+    </select><br />
+    <button id="btnAddColumn">添加 Column</button>
+
+    <h3>当前列列表</h3>
+    <button id="btnReloadColumns">刷新 Columns</button>
+    <table id="columnsTable">
+      <thead>
+        <tr>
+          <th>Column ID</th>
+          <th>Name</th>
+          <th>Type ID</th>
+          <th>PG Column</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>3. 创建 Record (Row)</h2>
+    <div>会根据当前列列表渲染输入框。</div>
+    <button id="btnRenderRecordForm">根据 Columns 生成表单</button>
+    <form id="recordForm"></form>
+    <button id="btnCreateRecord">创建 Record</button>
+  </div>
+
+  <div class="section">
+    <h2>调试日志</h2>
+    <div id="log" class="log"></div>
+  </div>
+
+  <script>
+    const apiBase = ""; // grpc-gateway 和静态 HTML 同端口时留空
+
+    let currentTableId = null;
+    let currentColumns = [];
+
+    function logMsg(...args) {
+      const el = document.getElementById("log");
+      const msg = args.map(a => {
+        if (typeof a === "string") return a;
+        try { return JSON.stringify(a, null, 2); } catch { return String(a); }
+      }).join(" ");
+      el.textContent = "[" + new Date().toISOString() + "] " + msg + "\n" + el.textContent;
+    }
+
+    async function createTable() {
+      const name = document.getElementById("tableName").value.trim();
+      if (!name) {
+        alert("请输入 table 名称");
+        return;
+      }
+      try {
+        const res = await fetch(apiBase + "/v1/tables", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: name, schema_name: "public" })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          logMsg("CreateTable error", data);
+          alert("CreateTable 失败，请看日志");
+          return;
+        }
+        currentTableId = data.table.id;
+        document.getElementById("currentTableId").textContent = currentTableId;
+        logMsg("CreateTable success", data);
+      } catch (e) {
+        logMsg("CreateTable exception", e);
+      }
+    }
+
+    async function reloadColumns() {
+      if (!currentTableId) {
+        alert("请先创建 Table");
+        return;
+      }
+      try {
+        const res = await fetch(apiBase + `/v1/tables/${currentTableId}/columns`);
+        const data = await res.json();
+        if (!res.ok) {
+          logMsg("ListColumns error", data);
+          return;
+        }
+        currentColumns = data.columns || [];
+        const tbody = document.querySelector("#columnsTable tbody");
+        tbody.innerHTML = "";
+        currentColumns.forEach(c => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${c.id}</td>
+            <td>${c.name}</td>
+            <td>${c.type_id}</td>
+            <td>${c.pg_column}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+        logMsg("ListColumns success", data);
+      } catch (e) {
+        logMsg("ListColumns exception", e);
+      }
+    }
+
+    async function addColumn() {
+      if (!currentTableId) {
+        alert("请先创建 Table");
+        return;
+      }
+      const name = document.getElementById("columnName").value.trim();
+      const typeId = document.getElementById("columnTypeId").value.trim();
+      const isNullable = document.getElementById("columnNullable").value === "true";
+
+      if (!name || !typeId) {
+        alert("列名和类型 ID 必填");
+        return;
+      }
+
+      try {
+        const res = await fetch(apiBase + `/v1/tables/${currentTableId}/columns`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            table_id: currentTableId,
+            name: name,
+            type_id: typeId,
+            is_nullable: isNullable,
+            position: currentColumns.length + 1
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          logMsg("AddColumn error", data);
+          alert("AddColumn 失败，请看日志");
+          return;
+        }
+        logMsg("AddColumn success", data);
+        await reloadColumns();
+      } catch (e) {
+        logMsg("AddColumn exception", e);
+      }
+    }
+
+    function renderRecordForm() {
+      if (!currentColumns.length) {
+        alert("当前没有列，请先添加 Column 并刷新");
+        return;
+      }
+      const form = document.getElementById("recordForm");
+      form.innerHTML = "";
+      currentColumns.forEach(col => {
+        const div = document.createElement("div");
+        div.innerHTML = `
+          <label>${col.name} (${col.id})</label>
+          <input data-column-id="${col.id}" placeholder="值 (string)" />
+        `;
+        form.appendChild(div);
+      });
+    }
+
+    async function createRecord() {
+      if (!currentTableId) {
+        alert("请先创建 Table");
+        return;
+      }
+      if (!currentColumns.length) {
+        alert("当前没有列，请先添加 Column");
+        return;
+      }
+
+      const inputs = document.querySelectorAll("#recordForm input[data-column-id]");
+      const cells = {};
+      inputs.forEach(input => {
+        const colId = input.getAttribute("data-column-id");
+        const v = input.value;
+        // 简单起见，全部当 string_value
+        cells[colId] = { string_value: v };
+      });
+
+      try {
+        const res = await fetch(apiBase + `/v1/tables/${currentTableId}/rows`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            table_id: currentTableId,
+            cells: cells
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          logMsg("CreateRow error", data);
+          alert("CreateRow 失败，请看日志");
+          return;
+        }
+        logMsg("CreateRow success", data);
+        alert("创建成功，Row ID: " + data.row.id);
+      } catch (e) {
+        logMsg("CreateRow exception", e);
+      }
+    }
+
+    document.getElementById("btnCreateTable").addEventListener("click", createTable);
+    document.getElementById("btnAddColumn").addEventListener("click", addColumn);
+    document.getElementById("btnReloadColumns").addEventListener("click", reloadColumns);
+    document.getElementById("btnRenderRecordForm").addEventListener("click", renderRecordForm);
+    document.getElementById("btnCreateRecord").addEventListener("click", createRecord);
+  </script>
+</body>
+</html>
+
