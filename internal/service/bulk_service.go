@@ -48,7 +48,7 @@ func (s *LowcodeService) BulkUpsertRows(ctx context.Context, req *lowcodev1.Bulk
 					continue
 				}
 				pgCols = append(pgCols, c.PgColumn)
-				args = append(args, valueToAny(val))
+				args = append(args, valueToAnyForColumn(val, c.PgType))
 			}
 			if len(pgCols) == 0 {
 				continue
@@ -79,7 +79,7 @@ func (s *LowcodeService) BulkUpsertRows(ctx context.Context, req *lowcodev1.Bulk
 					continue
 				}
 				setParts = append(setParts, fmt.Sprintf("%s = $%d", c.PgColumn, argIdx))
-				args = append(args, valueToAny(val))
+				args = append(args, valueToAnyForColumn(val, c.PgType))
 				argIdx++
 			}
 			if len(setParts) == 0 {

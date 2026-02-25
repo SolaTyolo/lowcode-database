@@ -557,6 +557,7 @@ func (*Value_BytesValue) isValue_Kind() {}
 func (*Value_JsonValue) isValue_Kind() {}
 
 // 一行数据，cells 的 key = column_id
+// 当 ListRows 指定了 expand_column_ids 时，对应 relationship 列的 cell 值为 json_value：{ "rows": [ { "id", "cells" }, ... ] }，一对多为多项，一对一为一项
 type Row struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -2033,13 +2034,14 @@ func (*DeleteRowResponse) Descriptor() ([]byte, []int) {
 }
 
 type ListRowsRequest struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	TableId           string                 `protobuf:"bytes,1,opt,name=table_id,json=tableId,proto3" json:"table_id,omitempty"`
-	PageSize          int32                  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	PageToken         string                 `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
-	ExpandColumnIds   []string               `protobuf:"bytes,4,rep,name=expand_column_ids,json=expandColumnIds,proto3" json:"expand_column_ids,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	TableId   string                 `protobuf:"bytes,1,opt,name=table_id,json=tableId,proto3" json:"table_id,omitempty"`
+	PageSize  int32                  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken string                 `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	// 要展开的 relationship 列 id 列表，返回时每行会带对应子表/关联表数据（一对多=多行，一对一=单行）
+	ExpandColumnIds []string `protobuf:"bytes,4,rep,name=expand_column_ids,json=expandColumnIds,proto3" json:"expand_column_ids,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ListRowsRequest) Reset() {
@@ -2822,12 +2824,13 @@ const file_lowcode_v1_lowcode_service_proto_rawDesc = "" +
 	"\x10DeleteRowRequest\x12\x19\n" +
 	"\btable_id\x18\x01 \x01(\tR\atableId\x12\x15\n" +
 	"\x06row_id\x18\x02 \x01(\tR\x05rowId\"\x13\n" +
-	"\x11DeleteRowResponse\"h\n" +
+	"\x11DeleteRowResponse\"\x94\x01\n" +
 	"\x0fListRowsRequest\x12\x19\n" +
 	"\btable_id\x18\x01 \x01(\tR\atableId\x12\x1b\n" +
 	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x03 \x01(\tR\tpageToken\"_\n" +
+	"page_token\x18\x03 \x01(\tR\tpageToken\x12*\n" +
+	"\x11expand_column_ids\x18\x04 \x03(\tR\x0fexpandColumnIds\"_\n" +
 	"\x10ListRowsResponse\x12#\n" +
 	"\x04rows\x18\x01 \x03(\v2\x0f.lowcode.v1.RowR\x04rows\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xb7\x01\n" +

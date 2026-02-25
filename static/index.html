@@ -2,246 +2,670 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <title>Lowcode DB Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Table Editor</title>
   <style>
-    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif; margin: 20px; }
-    h2 { margin-top: 24px; }
-    label { display: inline-block; min-width: 100px; }
-    input, select, button { margin: 4px 0; padding: 4px 8px; }
-    table { border-collapse: collapse; margin-top: 8px; }
-    th, td { border: 1px solid #ccc; padding: 4px 8px; }
-    .section { border: 1px solid #ddd; padding: 12px; margin-bottom: 16px; border-radius: 6px; }
-    .log { white-space: pre-wrap; background: #f7f7f7; padding: 8px; border-radius: 4px; max-height: 200px; overflow: auto; }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 13px; color: #1c1c1c; background: #f7f7f7; }
+    .app { display: flex; height: 100vh; overflow: hidden; }
+
+    /* Sidebar */
+    .sidebar { width: 260px; min-width: 260px; background: #fff; border-right: 1px solid #e0e0e0; display: flex; flex-direction: column; overflow: hidden; }
+    .sidebar-header { padding: 16px; border-bottom: 1px solid #e0e0e0; font-weight: 600; font-size: 14px; }
+    .schema-row { padding: 8px 16px; }
+    .schema-row select { width: 100%; padding: 8px 10px; border: 1px solid #e0e0e0; border-radius: 6px; background: #fff; cursor: pointer; }
+    .btn-new-table { margin: 12px 16px; padding: 8px 12px; width: calc(100% - 32px); background: #3b82f6; color: #fff; border: none; border-radius: 6px; font-weight: 500; cursor: pointer; }
+    .btn-new-table:hover { background: #2563eb; }
+    .table-search { padding: 0 16px 8px; }
+    .table-search input { width: 100%; padding: 8px 10px 8px 32px; border: 1px solid #e0e0e0; border-radius: 6px; background: #fafafa url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%23999' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a.75.75 0 0 0 1.061-1.06l-3.85-3.85a.75.75 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z'/%3E%3C/svg%3E") no-repeat 10px center; }
+    .table-list { flex: 1; overflow-y: auto; padding: 8px 0; position: relative; }
+    .table-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 16px; cursor: pointer; border-left: 3px solid transparent; }
+    .table-item:hover { background: #f5f5f5; }
+    .table-item.active { background: #eff6ff; border-left-color: #3b82f6; font-weight: 500; }
+    .table-item .table-item-label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+    .table-item .icon { width: 16px; height: 16px; opacity: 0.7; flex-shrink: 0; }
+    .table-item .table-item-dot { flex-shrink: 0; width: 24px; height: 24px; padding: 0; border: none; background: none; border-radius: 4px; cursor: pointer; color: #6b7280; display: flex; align-items: center; justify-content: center; }
+    .table-item .table-item-dot:hover { background: #e5e7eb; color: #374151; }
+    .table-item-dot svg { width: 16px; height: 16px; }
+    .table-context-menu { position: fixed; z-index: 200; min-width: 180px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); padding: 4px 0; display: none; }
+    .table-context-menu.show { display: block; }
+    .table-context-menu button { width: 100%; text-align: left; padding: 8px 14px; border: none; background: none; cursor: pointer; font-size: 13px; color: #374151; display: flex; align-items: center; gap: 8px; }
+    .table-context-menu button:hover { background: #f3f4f6; }
+    .table-context-menu button.danger { color: #dc2626; }
+    .table-context-menu button svg { width: 14px; height: 14px; flex-shrink: 0; opacity: 0.8; }
+    .sidebar-footer { padding: 12px 16px; border-top: 1px solid #e0e0e0; }
+    .sidebar-footer a { color: #6b7280; text-decoration: none; font-size: 12px; }
+    .sidebar-footer a:hover { text-decoration: underline; }
+
+    /* Main */
+    .main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #fff; overflow: hidden; }
+    .main-tabs { display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid #e0e0e0; background: #fafafa; min-height: 40px; }
+    .main-tabs .tab { padding: 10px 16px; margin-bottom: -1px; border-bottom: 2px solid transparent; color: #6b7280; }
+    .main-tabs .tab.active { color: #1c1c1c; border-bottom-color: #3b82f6; font-weight: 500; }
+    .toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid #e0e0e0; background: #fff; flex-wrap: wrap; }
+    .toolbar .btn { padding: 6px 12px; border-radius: 6px; border: 1px solid #e0e0e0; background: #fff; cursor: pointer; font-size: 13px; }
+    .toolbar .btn:hover { background: #f5f5f5; }
+    .toolbar .btn-insert { background: #22c55e; color: #fff; border-color: #22c55e; }
+    .toolbar .btn-insert:hover { background: #16a34a; }
+    .toolbar .btn-add-col { border-style: dashed; color: #6b7280; }
+    .toolbar .btn-delete { color: #dc2626; border-color: #fecaca; background: #fff; }
+    .toolbar .btn-delete:hover:not(:disabled) { background: #fef2f2; border-color: #dc2626; }
+    .toolbar .btn-delete:disabled { opacity: 0.5; cursor: not-allowed; color: #9ca3af; border-color: #e5e7eb; }
+    .toolbar .btn-delete svg { width: 14px; height: 14px; margin-right: 4px; vertical-align: -2px; }
+    .toolbar .toolbar-right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+    .toolbar .btn-icon { width: 32px; height: 32px; padding: 0; border: none; background: none; border-radius: 6px; cursor: pointer; color: #6b7280; display: flex; align-items: center; justify-content: center; }
+    .toolbar .btn-icon:hover { background: #f3f4f6; color: #374151; }
+    .toolbar .btn-icon svg { width: 16px; height: 16px; }
+
+    .pager { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid #e5e7eb; background: #fafafa; font-size: 13px; color: #6b7280; flex-wrap: wrap; }
+    .pager .pager-nav { display: flex; align-items: center; gap: 4px; }
+    .pager .pager-nav button { width: 28px; height: 28px; padding: 0; border: 1px solid #e5e7eb; background: #fff; border-radius: 4px; cursor: pointer; color: #374151; display: flex; align-items: center; justify-content: center; }
+    .pager .pager-nav button:hover:not(:disabled) { background: #f3f4f6; }
+    .pager .pager-nav button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .pager .pager-nav button svg { width: 14px; height: 14px; }
+    .pager .pager-page { display: flex; align-items: center; gap: 6px; }
+    .pager .pager-page input { width: 44px; padding: 4px 6px; border: 1px solid #e5e7eb; border-radius: 4px; text-align: center; font-size: 13px; }
+    .pager .pager-size select { padding: 4px 8px; border: 1px solid #e5e7eb; border-radius: 4px; background: #fff; font-size: 13px; cursor: pointer; }
+    .pager .pager-total { color: #6b7280; }
+
+    .grid-wrap { flex: 1; overflow: auto; }
+    .data-grid { border-collapse: collapse; min-width: 100%; table-layout: fixed; }
+    .data-grid th, .data-grid td { border: 1px solid #e5e7eb; padding: 0; vertical-align: middle; }
+    .data-grid th { background: #f9fafb; font-weight: 500; color: #374151; font-size: 12px; position: sticky; top: 0; z-index: 1; }
+    .data-grid th .col-name { padding: 8px 10px; }
+    .data-grid th .col-type { font-weight: 400; color: #6b7280; margin-left: 6px; }
+    .data-grid td input { width: 100%; min-width: 60px; border: none; padding: 8px 10px; background: transparent; font-size: 13px; }
+    .data-grid td input:focus { outline: none; background: #fffbeb; box-shadow: inset 0 0 0 1px #f59e0b; }
+    .data-grid .col-checkbox { width: 40px; text-align: center; }
+    .data-grid .col-id { width: 120px; max-width: 200px; }
+    .data-grid tbody tr:hover td { background: #fafafa; }
+    .data-grid tbody tr.new-row td { background: #f0fdf4; }
+    .data-grid tbody tr.new-row td input::placeholder { color: #22c55e; }
+
+    .empty-state { padding: 48px 24px; text-align: center; color: #6b7280; }
+    .empty-state p { margin: 8px 0 16px; }
+    .empty-state .btn { display: inline-block; padding: 8px 16px; background: #3b82f6; color: #fff; border-radius: 6px; text-decoration: none; border: none; cursor: pointer; font-size: 13px; }
+    .empty-state .btn:hover { background: #2563eb; }
+
+    /* Modal / Settings */
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 100; display: none; align-items: center; justify-content: center; }
+    .overlay.show { display: flex; }
+    .modal { background: #fff; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); min-width: 360px; max-width: 90vw; max-height: 90vh; overflow: auto; }
+    .modal-header { padding: 16px; border-bottom: 1px solid #e0e0e0; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+    .modal-body { padding: 16px; }
+    .modal-body label { display: block; margin-bottom: 4px; color: #374151; }
+    .modal-body input, .modal-body select { width: 100%; padding: 8px 10px; border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 12px; }
+    .modal-body button { margin-right: 8px; }
+    .modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #6b7280; padding: 0 4px; }
   </style>
 </head>
 <body>
-  <h1>Lowcode DB 测试页面</h1>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="sidebar-header">Table Editor</div>
+      <div class="schema-row">
+        <select id="schemaSelect">
+          <option value="public">schema public</option>
+        </select>
+      </div>
+      <button type="button" class="btn-new-table" id="btnNewTable">+ New table</button>
+      <div class="table-search">
+        <input type="text" id="tableSearch" placeholder="Search tables..." />
+      </div>
+      <div class="table-list" id="tableList"></div>
+      <div class="table-context-menu" id="tableContextMenu">
+        <button type="button" id="ctxEditTable"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Edit table</button>
+        <button type="button" id="ctxDeleteTable" class="danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Delete table</button>
+      </div>
+      <div class="sidebar-footer">
+        <a href="#" id="linkManageTypes">管理 Type（列类型）</a>
+      </div>
+    </aside>
 
-  <div class="section">
-    <h2>1. 创建 Table</h2>
-    <label>Table 名称</label>
-    <input id="tableName" placeholder="例如: tasks" />
-    <button id="btnCreateTable">创建 Table</button>
-    <div>当前 Table ID: <span id="currentTableId">(尚未创建)</span></div>
+    <main class="main">
+      <div class="main-tabs" id="mainTabs">
+        <span class="tab empty" id="tabLabel">未选择表</span>
+      </div>
+      <div class="toolbar" id="toolbar" style="display: none;">
+        <button type="button" class="btn btn-insert" id="btnInsertRow">Insert row</button>
+        <button type="button" class="btn btn-add-col" id="btnAddColumn">+ Add column</button>
+        <button type="button" class="btn btn-delete" id="btnDeleteRows" disabled title="删除选中行">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+          <span id="btnDeleteRowsLabel">Delete 0 rows</span>
+        </button>
+        <div class="toolbar-right">
+          <button type="button" class="btn-icon" id="btnRefresh" aria-label="Refresh" title="刷新数据"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+        </div>
+      </div>
+      <div class="pager" id="pager" style="display: none;">
+        <div class="pager-nav">
+          <button type="button" id="pagerPrev" aria-label="上一页" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg></button>
+          <span class="pager-page">Page <input type="number" id="pagerPageInput" min="1" value="1" /> of <span id="pagerTotalPages">1</span></span>
+          <button type="button" id="pagerNext" aria-label="下一页" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></button>
+        </div>
+        <div class="pager-size">
+          <select id="pagerSize">
+            <option value="50">50 rows</option>
+            <option value="100">100 rows</option>
+            <option value="200" selected>200 rows</option>
+          </select>
+        </div>
+        <span class="pager-total" id="pagerTotalText">0 records</span>
+      </div>
+      <div class="grid-wrap" id="gridWrap">
+        <div class="empty-state" id="emptyState">
+          <p>在左侧选择一张表，或创建新表后开始编辑数据。</p>
+          <button type="button" class="btn" id="btnNewTableFromEmpty">+ New table</button>
+        </div>
+        <table class="data-grid" id="dataGrid" style="display: none;">
+          <thead id="dataGridHead"></thead>
+          <tbody id="dataGridBody"></tbody>
+        </table>
+      </div>
+    </main>
   </div>
 
-  <div class="section">
-    <h2>2. 添加 Column</h2>
-    <div>先创建 Table，再添加列。</div>
-    <label>列名</label>
-    <input id="columnName" placeholder="例如: title" /><br />
-    <label>类型 ID</label>
-    <input id="columnTypeId" placeholder="lc_types.id，例如: text-type-id" /><br />
-    <label>可空</label>
-    <select id="columnNullable">
-      <option value="true">true</option>
-      <option value="false">false</option>
-    </select><br />
-    <button id="btnAddColumn">添加 Column</button>
-
-    <h3>当前列列表</h3>
-    <button id="btnReloadColumns">刷新 Columns</button>
-    <table id="columnsTable">
-      <thead>
-        <tr>
-          <th>Column ID</th>
-          <th>Name</th>
-          <th>Type ID</th>
-          <th>PG Column</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+  <!-- Modal: New table -->
+  <div class="overlay" id="modalNewTable">
+    <div class="modal">
+      <div class="modal-header">New table <button type="button" class="modal-close" data-close="modalNewTable">&times;</button></div>
+      <div class="modal-body">
+        <label>Table name</label>
+        <input type="text" id="newTableName" placeholder="e.g. orders" />
+        <button type="button" class="btn btn-insert" id="btnConfirmNewTable">Create</button>
+        <button type="button" class="btn" data-close="modalNewTable">Cancel</button>
+      </div>
+    </div>
   </div>
 
-  <div class="section">
-    <h2>3. 创建 Record (Row)</h2>
-    <div>会根据当前列列表渲染输入框。</div>
-    <button id="btnRenderRecordForm">根据 Columns 生成表单</button>
-    <form id="recordForm"></form>
-    <button id="btnCreateRecord">创建 Record</button>
+  <!-- Modal: Add column -->
+  <div class="overlay" id="modalAddColumn">
+    <div class="modal">
+      <div class="modal-header">Add column <button type="button" class="modal-close" data-close="modalAddColumn">&times;</button></div>
+      <div class="modal-body">
+        <label>Column name</label>
+        <input type="text" id="newColumnName" placeholder="e.g. amount" />
+        <label>Type</label>
+        <select id="newColumnType"></select>
+        <label>Nullable</label>
+        <select id="newColumnNullable">
+          <option value="true">true</option>
+          <option value="false">false</option>
+        </select>
+        <button type="button" class="btn btn-insert" id="btnConfirmAddColumn">Add</button>
+        <button type="button" class="btn" data-close="modalAddColumn">Cancel</button>
+      </div>
+    </div>
   </div>
 
-  <div class="section">
-    <h2>调试日志</h2>
-    <div id="log" class="log"></div>
+  <!-- Modal: Edit table -->
+  <div class="overlay" id="modalEditTable">
+    <div class="modal">
+      <div class="modal-header">Edit table <button type="button" class="modal-close" data-close="modalEditTable">&times;</button></div>
+      <div class="modal-body">
+        <label>Table name</label>
+        <input type="text" id="editTableName" placeholder="e.g. orders" />
+        <p style="font-size:12px;color:#6b7280;margin-top:0">当前后端不支持表重命名，此处仅作占位。如需重命名请直接创建新表并迁移数据。</p>
+        <button type="button" class="btn btn-insert" id="btnConfirmEditTable">Save</button>
+        <button type="button" class="btn" data-close="modalEditTable">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Manage types -->
+  <div class="overlay" id="modalTypes">
+    <div class="modal">
+      <div class="modal-header">管理 Type（列类型） <button type="button" class="modal-close" data-close="modalTypes">&times;</button></div>
+      <div class="modal-body">
+        <label>Type name</label>
+        <input type="text" id="typeName" placeholder="e.g. text" />
+        <label>PG type</label>
+        <input type="text" id="typePgType" placeholder="e.g. text, int8, timestamptz, jsonb" />
+        <button type="button" class="btn btn-insert" id="btnCreateType">Create Type</button>
+        <p style="margin-top:12px;font-size:12px;color:#6b7280">现有 Types 会在「Add column」的 Type 下拉框中显示。</p>
+      </div>
+    </div>
   </div>
 
   <script>
-    const apiBase = ""; // grpc-gateway 和静态 HTML 同端口时留空
-
+    const apiBase = "http://127.0.0.1:8080";
+    let tablesList = [];
     let currentTableId = null;
+    let currentTable = null;
     let currentColumns = [];
+    let currentTypes = [];
+    let currentRows = [];
+    let tableSearchQuery = "";
+    let currentPageSize = 200;
+    let currentPage = 1;
+    let nextPageToken = "";
 
-    function logMsg(...args) {
-      const el = document.getElementById("log");
-      const msg = args.map(a => {
-        if (typeof a === "string") return a;
-        try { return JSON.stringify(a, null, 2); } catch { return String(a); }
-      }).join(" ");
-      el.textContent = "[" + new Date().toISOString() + "] " + msg + "\n" + el.textContent;
+    function esc(s) {
+      const div = document.createElement("div");
+      div.textContent = s;
+      return div.innerHTML.replace(/"/g, "&quot;");
     }
 
-    async function createTable() {
-      const name = document.getElementById("tableName").value.trim();
-      if (!name) {
-        alert("请输入 table 名称");
-        return;
-      }
+    function valueFromCell(cell) {
+      if (!cell) return "";
+      const s = cell.string_value ?? cell.stringValue;
+      const n = cell.number_value ?? cell.numberValue;
+      const b = cell.bool_value ?? cell.boolValue;
+      const t = cell.timestamp_value ?? cell.timestampValue;
+      const j = cell.json_value ?? cell.jsonValue;
+      if (s !== undefined) return String(s);
+      if (n !== undefined) return String(n);
+      if (b !== undefined) return b ? "true" : "false";
+      if (t) return String(t);
+      if (j) return typeof j === "object" ? JSON.stringify(j) : String(j);
+      return "";
+    }
+
+    function buildCellsFromRow(rowEl) {
+      const cells = {};
+      rowEl.querySelectorAll("input[data-column-id]").forEach(input => {
+        const colId = input.getAttribute("data-column-id");
+        const v = input.value.trim();
+        cells[colId] = { string_value: v };
+      });
+      return cells;
+    }
+
+    async function loadTypes() {
+      try {
+        const res = await fetch(apiBase + "/v1/types");
+        const data = await res.json();
+        if (!res.ok) return;
+        currentTypes = data.types || [];
+        const sel = document.getElementById("newColumnType");
+        const prev = sel.value;
+        sel.innerHTML = currentTypes.map(t => `<option value="${esc(t.name)}">${esc(t.name)} (${esc(t.pg_type || "")})</option>`).join("");
+        if (prev && currentTypes.some(t => t.name === prev)) sel.value = prev;
+      } catch (e) {}
+    }
+
+    async function loadTables() {
+      try {
+        const res = await fetch(apiBase + "/v1/tables");
+        const data = await res.json();
+        if (!res.ok) return;
+        tablesList = data.tables || [];
+        renderTableList();
+      } catch (e) {}
+    }
+
+    let contextMenuTableId = null;
+
+    function showTableContextMenu(x, y, tableName) {
+      contextMenuTableId = tableName;
+      const menu = document.getElementById("tableContextMenu");
+      menu.style.left = x + "px";
+      menu.style.top = y + "px";
+      menu.classList.add("show");
+    }
+    function hideTableContextMenu() {
+      document.getElementById("tableContextMenu").classList.remove("show");
+      contextMenuTableId = null;
+    }
+
+    function renderTableList() {
+      const list = document.getElementById("tableList");
+      const q = (document.getElementById("tableSearch").value || "").trim().toLowerCase();
+      const filtered = q ? tablesList.filter(t => (t.name || "").toLowerCase().includes(q)) : tablesList;
+      list.innerHTML = filtered.map(t => {
+        const name = t.name || t.id || "";
+        const active = currentTableId === name ? " active" : "";
+        return `<div class="table-item${active}" data-table="${esc(name)}">
+          <span class="table-item-label"><span class="icon">▣</span>${esc(name)}</span>
+          <button type="button" class="table-item-dot" aria-label="Menu" data-table="${esc(name)}"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="6" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="18" r="1.5"/></svg></button>
+        </div>`;
+      }).join("");
+      list.querySelectorAll(".table-item").forEach(el => {
+        const label = el.querySelector(".table-item-label");
+        const dot = el.querySelector(".table-item-dot");
+        if (label) label.addEventListener("click", () => selectTable(el.dataset.table));
+        if (dot) {
+          dot.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const rect = dot.getBoundingClientRect();
+            showTableContextMenu(rect.right - 4, rect.bottom + 4, el.dataset.table);
+          });
+        }
+      });
+    }
+
+    document.addEventListener("click", (e) => {
+      const menu = document.getElementById("tableContextMenu");
+      if (!menu.classList.contains("show")) return;
+      if (menu.contains(e.target) || e.target.closest(".table-item-dot")) return;
+      hideTableContextMenu();
+    });
+    document.getElementById("tableContextMenu")?.addEventListener("click", (e) => e.stopPropagation());
+
+    document.getElementById("ctxEditTable").addEventListener("click", () => {
+      if (!contextMenuTableId) return;
+      document.getElementById("editTableName").value = contextMenuTableId;
+      hideTableContextMenu();
+      openModal("modalEditTable");
+    });
+    document.getElementById("ctxDeleteTable").addEventListener("click", () => {
+      const name = contextMenuTableId;
+      hideTableContextMenu();
+      if (!name) return;
+      if (!confirm("确定删除表 \"" + name + "\"？此操作会删除该表及其所有数据，且不可恢复。")) return;
+      fetch(apiBase + "/v1/tables/" + encodeURIComponent(name), { method: "DELETE" })
+        .then(() => {
+          if (currentTableId === name) {
+            currentTableId = null;
+            document.getElementById("tabLabel").textContent = "未选择表";
+            document.getElementById("tabLabel").classList.add("empty");
+            document.getElementById("emptyState").style.display = "block";
+            document.getElementById("toolbar").style.display = "none";
+            document.getElementById("pager").style.display = "none";
+            document.getElementById("dataGrid").style.display = "none";
+          }
+          loadTables();
+        })
+        .catch(() => {});
+    });
+
+    document.getElementById("btnConfirmEditTable").addEventListener("click", () => {
+      closeModal("modalEditTable");
+      alert("当前后端不支持表重命名。");
+    });
+
+    function selectTable(tableName) {
+      if (!tableName) return;
+      currentTableId = tableName;
+      renderTableList();
+      document.getElementById("tabLabel").textContent = "public." + tableName;
+      document.getElementById("tabLabel").classList.remove("empty");
+      document.getElementById("emptyState").style.display = "none";
+      document.getElementById("toolbar").style.display = "flex";
+      document.getElementById("pager").style.display = "flex";
+      document.getElementById("dataGrid").style.display = "table";
+      currentPage = 1;
+      currentPageSize = parseInt(document.getElementById("pagerSize").value, 10) || 200;
+      loadTableContent();
+    }
+
+    async function loadTableContent() {
+      if (!currentTableId) return;
+      const pageSize = parseInt(document.getElementById("pagerSize").value, 10) || 200;
+      currentPageSize = pageSize;
+      let url = apiBase + `/v1/tables/${encodeURIComponent(currentTableId)}/rows?page_size=${pageSize}`;
+      if (currentPage > 1 && nextPageToken) url += "&page_token=" + encodeURIComponent(nextPageToken);
+      try {
+        const [schemaRes, rowsRes] = await Promise.all([
+          fetch(apiBase + `/v1/tables/${encodeURIComponent(currentTableId)}/schema`),
+          fetch(url)
+        ]);
+        const schemaData = await schemaRes.json();
+        const rowsData = await rowsRes.json();
+        if (!schemaRes.ok) return;
+        currentTable = schemaData.table || null;
+        currentColumns = schemaData.columns || [];
+        currentRows = rowsData.rows || [];
+        nextPageToken = rowsData.next_page_token || "";
+        renderPager();
+        renderDataGrid();
+      } catch (e) {}
+    }
+
+    function renderPager() {
+      const totalPages = Math.max(1, currentPage);
+      document.getElementById("pagerTotalPages").textContent = totalPages;
+      document.getElementById("pagerPageInput").value = currentPage;
+      document.getElementById("pagerPageInput").max = totalPages;
+      document.getElementById("pagerTotalText").textContent = currentRows.length + " records";
+      document.getElementById("pagerPrev").disabled = currentPage <= 1;
+      document.getElementById("pagerNext").disabled = !nextPageToken || currentRows.length < currentPageSize;
+    }
+
+    function renderDataGrid() {
+      const thead = document.getElementById("dataGridHead");
+      const tbody = document.getElementById("dataGridBody");
+      thead.innerHTML = "";
+      tbody.innerHTML = "";
+
+      const headerTr = document.createElement("tr");
+      headerTr.innerHTML = "<th class=\"col-checkbox\"><input type=\"checkbox\" id=\"headCheck\" /></th><th class=\"col-id\">id</th>";
+      currentColumns.forEach(col => {
+        const th = document.createElement("th");
+        th.innerHTML = `<span class="col-name">${esc(col.name)}<span class="col-type">${esc(col.type_id || "")}</span></span>`;
+        headerTr.appendChild(th);
+      });
+      thead.appendChild(headerTr);
+
+      currentRows.forEach(row => {
+        const tr = document.createElement("tr");
+        tr.dataset.rowId = row.id;
+        let html = `<td class="col-checkbox"><input type="checkbox" class="row-check" /></td><td class="col-id">${esc(row.id)}</td>`;
+        currentColumns.forEach(col => {
+          const val = row.cells && row.cells[col.id] ? valueFromCell(row.cells[col.id]) : "";
+          html += `<td><input data-column-id="${col.id}" value="${esc(val)}" /></td>`;
+        });
+        tr.innerHTML = html;
+        tbody.appendChild(tr);
+      });
+
+      const newTr = document.createElement("tr");
+      newTr.className = "new-row";
+      newTr.dataset.rowId = "";
+      newTr.innerHTML = `<td class="col-checkbox"></td><td class="col-id"><em>New row</em></td>`;
+      currentColumns.forEach(col => {
+        const td = document.createElement("td");
+        td.innerHTML = `<input data-column-id="${col.id}" placeholder="..." />`;
+        newTr.appendChild(td);
+      });
+      tbody.appendChild(newTr);
+
+      tbody.querySelectorAll("input[data-column-id]").forEach(input => {
+        input.addEventListener("blur", function() {
+          const tr = this.closest("tr");
+          if (!tr || tr.classList.contains("new-row")) return;
+          const rowId = tr.dataset.rowId;
+          if (!rowId) return;
+          saveRow(rowId, tr);
+        });
+      });
+
+      document.getElementById("headCheck")?.addEventListener("change", function() {
+        tbody.querySelectorAll(".row-check").forEach(cb => { cb.checked = this.checked; });
+        updateDeleteButton();
+      });
+      tbody.querySelectorAll(".row-check").forEach(cb => {
+        cb.addEventListener("change", updateDeleteButton);
+      });
+      updateDeleteButton();
+    }
+
+    function getSelectedRowIds() {
+      const tbody = document.getElementById("dataGridBody");
+      if (!tbody) return [];
+      const ids = [];
+      tbody.querySelectorAll("tr:not(.new-row) .row-check:checked").forEach(cb => {
+        const tr = cb.closest("tr");
+        if (tr && tr.dataset.rowId) ids.push(tr.dataset.rowId);
+      });
+      return ids;
+    }
+
+    function updateDeleteButton() {
+      const n = getSelectedRowIds().length;
+      const btn = document.getElementById("btnDeleteRows");
+      const label = document.getElementById("btnDeleteRowsLabel");
+      if (!btn || !label) return;
+      btn.disabled = n === 0;
+      label.textContent = n === 1 ? "Delete 1 row" : "Delete " + n + " rows";
+    }
+
+    async function deleteSelectedRows() {
+      const ids = getSelectedRowIds();
+      if (!currentTableId || ids.length === 0) return;
+      if (!confirm("确定删除选中的 " + ids.length + " 行？此操作不可恢复。")) return;
+      try {
+        const res = await fetch(apiBase + "/v1/tables/" + encodeURIComponent(currentTableId) + "/rows:bulkDelete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ table_id: currentTableId, row_ids: ids })
+        });
+        if (!res.ok) return;
+        loadTableContent();
+      } catch (e) {}
+    }
+
+    async function saveRow(rowId, rowEl) {
+      const cells = buildCellsFromRow(rowEl);
+      if (!currentTableId) return;
+      try {
+        if (rowId) {
+          await fetch(apiBase + `/v1/tables/${encodeURIComponent(currentTableId)}/rows/${encodeURIComponent(rowId)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ table_id: currentTableId, row_id: rowId, cells })
+          });
+        } else {
+          const res = await fetch(apiBase + `/v1/tables/${encodeURIComponent(currentTableId)}/rows`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ table_id: currentTableId, cells })
+          });
+          const data = await res.json();
+          if (res.ok && data.row) {
+            currentRows.push(data.row);
+            loadTableContent();
+          }
+        }
+      } catch (e) {}
+    }
+
+    async function insertRow() {
+      if (!currentTableId || !currentColumns.length) return;
+      const tbody = document.getElementById("dataGridBody");
+      const newRow = tbody.querySelector("tr.new-row");
+      if (!newRow) return;
+      const cells = buildCellsFromRow(newRow);
+      try {
+        const res = await fetch(apiBase + `/v1/tables/${encodeURIComponent(currentTableId)}/rows`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ table_id: currentTableId, cells })
+        });
+        const data = await res.json();
+        if (res.ok && data.row) {
+          currentRows.push(data.row);
+          loadTableContent();
+        }
+      } catch (e) {}
+    }
+
+    function openModal(id) {
+      document.getElementById(id).classList.add("show");
+    }
+    function closeModal(id) {
+      document.getElementById(id).classList.remove("show");
+    }
+    document.querySelectorAll("[data-close]").forEach(el => {
+      el.addEventListener("click", () => closeModal(el.dataset.close));
+    });
+
+    document.getElementById("btnNewTable").addEventListener("click", () => openModal("modalNewTable"));
+    document.getElementById("btnNewTableFromEmpty").addEventListener("click", () => openModal("modalNewTable"));
+    document.getElementById("tableSearch").addEventListener("input", renderTableList);
+
+    document.getElementById("btnConfirmNewTable").addEventListener("click", async () => {
+      const name = document.getElementById("newTableName").value.trim();
+      if (!name) return;
       try {
         const res = await fetch(apiBase + "/v1/tables", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: name, schema_name: "public" })
+          body: JSON.stringify({ name, schema_name: "public" })
         });
         const data = await res.json();
-        if (!res.ok) {
-          logMsg("CreateTable error", data);
-          alert("CreateTable 失败，请看日志");
-          return;
-        }
-        currentTableId = data.table.id;
-        document.getElementById("currentTableId").textContent = currentTableId;
-        logMsg("CreateTable success", data);
-      } catch (e) {
-        logMsg("CreateTable exception", e);
-      }
-    }
+        if (!res.ok) return;
+        closeModal("modalNewTable");
+        document.getElementById("newTableName").value = "";
+        await loadTables();
+        selectTable(data.table?.name || data.table?.id || name);
+      } catch (e) {}
+    });
 
-    async function reloadColumns() {
-      if (!currentTableId) {
-        alert("请先创建 Table");
-        return;
-      }
+    document.getElementById("btnRefresh").addEventListener("click", () => {
+      currentPage = 1;
+      nextPageToken = "";
+      if (currentTableId) loadTableContent();
+    });
+    document.getElementById("pagerSize").addEventListener("change", () => {
+      currentPage = 1;
+      nextPageToken = "";
+      if (currentTableId) loadTableContent();
+    });
+    document.getElementById("pagerPrev").addEventListener("click", () => {
+      if (currentPage <= 1) return;
+      currentPage--;
+      if (currentTableId) loadTableContent();
+    });
+    document.getElementById("pagerNext").addEventListener("click", () => {
+      if (!nextPageToken) return;
+      currentPage++;
+      if (currentTableId) loadTableContent();
+    });
+
+    document.getElementById("btnInsertRow").addEventListener("click", insertRow);
+    document.getElementById("btnDeleteRows").addEventListener("click", deleteSelectedRows);
+    document.getElementById("btnAddColumn").addEventListener("click", () => {
+      loadTypes();
+      openModal("modalAddColumn");
+    });
+
+    document.getElementById("btnConfirmAddColumn").addEventListener("click", async () => {
+      const name = document.getElementById("newColumnName").value.trim();
+      const typeId = document.getElementById("newColumnType").value;
+      const isNullable = document.getElementById("newColumnNullable").value === "true";
+      if (!name || !typeId || !currentTableId) return;
       try {
-        const res = await fetch(apiBase + `/v1/tables/${currentTableId}/columns`);
-        const data = await res.json();
-        if (!res.ok) {
-          logMsg("ListColumns error", data);
-          return;
-        }
-        currentColumns = data.columns || [];
-        const tbody = document.querySelector("#columnsTable tbody");
-        tbody.innerHTML = "";
-        currentColumns.forEach(c => {
-          const tr = document.createElement("tr");
-          tr.innerHTML = `
-            <td>${c.id}</td>
-            <td>${c.name}</td>
-            <td>${c.type_id}</td>
-            <td>${c.pg_column}</td>
-          `;
-          tbody.appendChild(tr);
-        });
-        logMsg("ListColumns success", data);
-      } catch (e) {
-        logMsg("ListColumns exception", e);
-      }
-    }
-
-    async function addColumn() {
-      if (!currentTableId) {
-        alert("请先创建 Table");
-        return;
-      }
-      const name = document.getElementById("columnName").value.trim();
-      const typeId = document.getElementById("columnTypeId").value.trim();
-      const isNullable = document.getElementById("columnNullable").value === "true";
-
-      if (!name || !typeId) {
-        alert("列名和类型 ID 必填");
-        return;
-      }
-
-      try {
-        const res = await fetch(apiBase + `/v1/tables/${currentTableId}/columns`, {
+        const res = await fetch(apiBase + `/v1/tables/${encodeURIComponent(currentTableId)}/columns`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             table_id: currentTableId,
-            name: name,
+            name,
             type_id: typeId,
             is_nullable: isNullable,
             position: currentColumns.length + 1
           })
         });
-        const data = await res.json();
-        if (!res.ok) {
-          logMsg("AddColumn error", data);
-          alert("AddColumn 失败，请看日志");
-          return;
-        }
-        logMsg("AddColumn success", data);
-        await reloadColumns();
-      } catch (e) {
-        logMsg("AddColumn exception", e);
-      }
-    }
+        if (!res.ok) return;
+        closeModal("modalAddColumn");
+        document.getElementById("newColumnName").value = "";
+        loadTableContent();
+      } catch (e) {}
+    });
 
-    function renderRecordForm() {
-      if (!currentColumns.length) {
-        alert("当前没有列，请先添加 Column 并刷新");
-        return;
-      }
-      const form = document.getElementById("recordForm");
-      form.innerHTML = "";
-      currentColumns.forEach(col => {
-        const div = document.createElement("div");
-        div.innerHTML = `
-          <label>${col.name} (${col.id})</label>
-          <input data-column-id="${col.id}" placeholder="值 (string)" />
-        `;
-        form.appendChild(div);
-      });
-    }
-
-    async function createRecord() {
-      if (!currentTableId) {
-        alert("请先创建 Table");
-        return;
-      }
-      if (!currentColumns.length) {
-        alert("当前没有列，请先添加 Column");
-        return;
-      }
-
-      const inputs = document.querySelectorAll("#recordForm input[data-column-id]");
-      const cells = {};
-      inputs.forEach(input => {
-        const colId = input.getAttribute("data-column-id");
-        const v = input.value;
-        // 简单起见，全部当 string_value
-        cells[colId] = { string_value: v };
-      });
-
+    document.getElementById("linkManageTypes").addEventListener("click", (e) => {
+      e.preventDefault();
+      openModal("modalTypes");
+    });
+    document.getElementById("btnCreateType").addEventListener("click", async () => {
+      const name = document.getElementById("typeName").value.trim();
+      const pgType = document.getElementById("typePgType").value.trim();
+      if (!name || !pgType) return;
       try {
-        const res = await fetch(apiBase + `/v1/tables/${currentTableId}/rows`, {
+        await fetch(apiBase + "/v1/types", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            table_id: currentTableId,
-            cells: cells
-          })
+          body: JSON.stringify({ name, pg_type: pgType, config: {} })
         });
-        const data = await res.json();
-        if (!res.ok) {
-          logMsg("CreateRow error", data);
-          alert("CreateRow 失败，请看日志");
-          return;
-        }
-        logMsg("CreateRow success", data);
-        alert("创建成功，Row ID: " + data.row.id);
-      } catch (e) {
-        logMsg("CreateRow exception", e);
-      }
-    }
+        await loadTypes();
+        document.getElementById("typeName").value = "";
+        document.getElementById("typePgType").value = "";
+      } catch (e) {}
+    });
 
-    document.getElementById("btnCreateTable").addEventListener("click", createTable);
-    document.getElementById("btnAddColumn").addEventListener("click", addColumn);
-    document.getElementById("btnReloadColumns").addEventListener("click", reloadColumns);
-    document.getElementById("btnRenderRecordForm").addEventListener("click", renderRecordForm);
-    document.getElementById("btnCreateRecord").addEventListener("click", createRecord);
+    loadTypes();
+    loadTables();
   </script>
 </body>
 </html>
-

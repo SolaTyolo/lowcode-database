@@ -42,7 +42,7 @@ func (s *LowcodeService) CreateRow(ctx context.Context, req *lowcodev1.CreateRow
 			continue
 		}
 		pgCols = append(pgCols, c.PgColumn)
-		args = append(args, valueToAny(val))
+		args = append(args, valueToAnyForColumn(val, c.PgType))
 		_ = argPos
 	}
 
@@ -105,7 +105,7 @@ func (s *LowcodeService) UpdateRow(ctx context.Context, req *lowcodev1.UpdateRow
 			continue
 		}
 		setParts = append(setParts, fmt.Sprintf("%s = $%d", c.PgColumn, argIdx))
-		args = append(args, valueToAny(val))
+		args = append(args, valueToAnyForColumn(val, c.PgType))
 		argIdx++
 	}
 	if len(setParts) == 0 {

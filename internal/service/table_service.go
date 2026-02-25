@@ -3,10 +3,10 @@ package service
 import (
 	"context"
 	"fmt"
-	"strings"
+	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	lowcodev1 "github.com/solat/lowcode-database/gen/lowcode/v1"
 )
@@ -22,7 +22,9 @@ func (s *LowcodeService) CreateTable(ctx context.Context, req *lowcodev1.CreateT
 	if schemaName == "" {
 		schemaName = "public"
 	}
-	physTable := "lc_t_" + strings.ReplaceAll(uuid.New().String(), "-", "")
+	// 物理表名直接基于逻辑表名生成，形如 lc_t_<table_name>。
+	// pgx.Identifier 会负责正确转义，避免 SQL 注入。
+	physTable := "lc_t_" + req.GetName()
 
 	tx, err := pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -45,14 +47,19 @@ func (s *LowcodeService) CreateTable(ctx context.Context, req *lowcodev1.CreateT
 	const ins = `
 		INSERT INTO lc_tables (name, schema_name, table_name)
 		VALUES ($1, $2, $3)
-		RETURNING id, name, schema_name, table_name, created_at, updated_at
+		RETURNING name, schema_name, table_name, created_at, updated_at
 	`
 	row := tx.QueryRow(ctx, ins, req.GetName(), schemaName, physTable)
 
 	var t lowcodev1.Table
-	if err := row.Scan(&t.Id, &t.Name, &t.SchemaName, &t.TableName, &t.CreatedAt, &t.UpdatedAt); err != nil {
+	var createdAt, updatedAt time.Time
+	if err := row.Scan(&t.Name, &t.SchemaName, &t.TableName, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
+	// 对外约定：Table.Id 使用逻辑 name。
+	t.Id = t.Name
+	t.CreatedAt = timestamppb.New(createdAt)
+	t.UpdatedAt = timestamppb.New(updatedAt)
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -72,7 +79,7 @@ func (s *LowcodeService) DeleteTable(ctx context.Context, req *lowcodev1.DeleteT
 	defer tx.Rollback(ctx)
 
 	var schemaName, tableName string
-	if err := tx.QueryRow(ctx, `SELECT schema_name, table_name FROM lc_tables WHERE id = $1`, req.GetId()).
+	if err := tx.QueryRow(ctx, `SELECT schema_name, table_name FROM lc_tables WHERE name = $1`, req.GetId()).
 		Scan(&schemaName, &tableName); err != nil {
 		if err == pgx.ErrNoRows {
 			return &lowcodev1.DeleteTableResponse{}, nil
@@ -86,7 +93,7 @@ func (s *LowcodeService) DeleteTable(ctx context.Context, req *lowcodev1.DeleteT
 		return nil, err
 	}
 
-	if _, err := tx.Exec(ctx, `DELETE FROM lc_tables WHERE id = $1`, req.GetId()); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM lc_tables WHERE name = $1`, req.GetId()); err != nil {
 		return nil, err
 	}
 
@@ -101,7 +108,7 @@ func (s *LowcodeService) ListTables(ctx context.Context, _ *lowcodev1.ListTables
 	if err != nil {
 		return nil, err
 	}
-	const q = `SELECT id, name, schema_name, table_name, created_at, updated_at FROM lc_tables ORDER BY created_at`
+	const q = `SELECT name, schema_name, table_name, created_at, updated_at FROM lc_tables ORDER BY created_at`
 	rows, err := pool.Query(ctx, q)
 	if err != nil {
 		return nil, err
@@ -111,9 +118,14 @@ func (s *LowcodeService) ListTables(ctx context.Context, _ *lowcodev1.ListTables
 	var res lowcodev1.ListTablesResponse
 	for rows.Next() {
 		var t lowcodev1.Table
-		if err := rows.Scan(&t.Id, &t.Name, &t.SchemaName, &t.TableName, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		var createdAt, updatedAt time.Time
+		if err := rows.Scan(&t.Name, &t.SchemaName, &t.TableName, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
+		// 对外：Table.Id 使用逻辑 name。
+		t.Id = t.Name
+		t.CreatedAt = timestamppb.New(createdAt)
+		t.UpdatedAt = timestamppb.New(updatedAt)
 		res.Tables = append(res.Tables, &t)
 	}
 	return &res, rows.Err()
@@ -132,16 +144,21 @@ func (s *LowcodeService) GetTableSchema(ctx context.Context, req *lowcodev1.GetT
 	// table
 	var tbl lowcodev1.Table
 	row := pool.QueryRow(ctx, `
-		SELECT id, name, schema_name, table_name, created_at, updated_at
+		SELECT name, schema_name, table_name, created_at, updated_at
 		FROM lc_tables
-		WHERE id = $1
+		WHERE name = $1
 	`, req.GetTableId())
-	if err := row.Scan(&tbl.Id, &tbl.Name, &tbl.SchemaName, &tbl.TableName, &tbl.CreatedAt, &tbl.UpdatedAt); err != nil {
+	var tblCreatedAt, tblUpdatedAt time.Time
+	if err := row.Scan(&tbl.Name, &tbl.SchemaName, &tbl.TableName, &tblCreatedAt, &tblUpdatedAt); err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, fmt.Errorf("table not found")
 		}
 		return nil, err
 	}
+	// 对外：Table.Id 使用逻辑 name。
+	tbl.Id = tbl.Name
+	tbl.CreatedAt = timestamppb.New(tblCreatedAt)
+	tbl.UpdatedAt = timestamppb.New(tblUpdatedAt)
 
 	// columns
 	colRows, err := pool.Query(ctx, `
@@ -159,9 +176,12 @@ func (s *LowcodeService) GetTableSchema(ctx context.Context, req *lowcodev1.GetT
 	for colRows.Next() {
 		var c lowcodev1.Column
 		var cfg map[string]any
-		if err := colRows.Scan(&c.Id, &c.TableId, &c.Name, &c.TypeId, &c.PgColumn, &c.IsNullable, &c.Position, &cfg, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		var createdAt, updatedAt time.Time
+		if err := colRows.Scan(&c.Id, &c.TableId, &c.Name, &c.TypeId, &c.PgColumn, &c.IsNullable, &c.Position, &cfg, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
+		c.CreatedAt = timestamppb.New(createdAt)
+		c.UpdatedAt = timestamppb.New(updatedAt)
 		if cfg != nil {
 			c.Config = toStruct(cfg)
 		}
@@ -186,9 +206,12 @@ func (s *LowcodeService) GetTableSchema(ctx context.Context, req *lowcodev1.GetT
 	var indexes []*lowcodev1.Index
 	for idxRows.Next() {
 		var idx lowcodev1.Index
-		if err := idxRows.Scan(&idx.Id, &idx.TableId, &idx.Name, &idx.PgIndex, &idx.ColumnIds, &idx.IsUnique, &idx.CreatedAt, &idx.UpdatedAt); err != nil {
+		var createdAt, updatedAt time.Time
+		if err := idxRows.Scan(&idx.Id, &idx.TableId, &idx.Name, &idx.PgIndex, &idx.ColumnIds, &idx.IsUnique, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
+		idx.CreatedAt = timestamppb.New(createdAt)
+		idx.UpdatedAt = timestamppb.New(updatedAt)
 		indexes = append(indexes, &idx)
 	}
 	if err := idxRows.Err(); err != nil {

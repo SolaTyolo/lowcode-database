@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	lowcodev1 "github.com/solat/lowcode-database/gen/lowcode/v1"
 )
@@ -18,11 +20,12 @@ func (s *LowcodeService) CreateIndex(ctx context.Context, req *lowcodev1.CreateI
 	if err != nil {
 		return nil, err
 	}
-	tableID := req.GetTableId()
-	if tableID == "" {
+	tableIdentifier := req.GetTableId()
+	if tableIdentifier == "" {
 		return nil, fmt.Errorf("table_id is required")
 	}
-	cols, schemaName, tableName, err := s.loadColumns(ctx, pool, tableID)
+	// loadColumns 会内部解析成逻辑 table name。
+	cols, schemaName, tableName, err := s.loadColumns(ctx, pool, tableIdentifier)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +74,7 @@ func (s *LowcodeService) CreateIndex(ctx context.Context, req *lowcodev1.CreateI
 		RETURNING id, table_id, name, pg_index, column_ids, is_unique, created_at, updated_at
 	`
 	row := tx.QueryRow(ctx, ins,
-		tableID,
+		tableIdentifier,
 		req.GetName(),
 		pgIndex,
 		req.GetColumnIds(),
@@ -79,9 +82,12 @@ func (s *LowcodeService) CreateIndex(ctx context.Context, req *lowcodev1.CreateI
 	)
 
 	var idx lowcodev1.Index
-	if err := row.Scan(&idx.Id, &idx.TableId, &idx.Name, &idx.PgIndex, &idx.ColumnIds, &idx.IsUnique, &idx.CreatedAt, &idx.UpdatedAt); err != nil {
+	var createdAt, updatedAt time.Time
+	if err := row.Scan(&idx.Id, &idx.TableId, &idx.Name, &idx.PgIndex, &idx.ColumnIds, &idx.IsUnique, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
+	idx.CreatedAt = timestamppb.New(createdAt)
+	idx.UpdatedAt = timestamppb.New(updatedAt)
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -104,7 +110,7 @@ func (s *LowcodeService) DeleteIndex(ctx context.Context, req *lowcodev1.DeleteI
 	if err := tx.QueryRow(ctx, `
 		SELECT t.schema_name, t.table_name, i.pg_index
 		FROM lc_indexes i
-		JOIN lc_tables t ON i.table_id = t.id
+		JOIN lc_tables t ON i.table_id = t.name
 		WHERE i.id = $1`,
 		req.GetId(),
 	).Scan(&schemaName, &tableName, &pgIndex); err != nil {
@@ -135,13 +141,14 @@ func (s *LowcodeService) ListIndexes(ctx context.Context, req *lowcodev1.ListInd
 	if err != nil {
 		return nil, err
 	}
+	tableID := req.GetTableId()
 	const q = `
 		SELECT id, table_id, name, pg_index, column_ids, is_unique, created_at, updated_at
 		FROM lc_indexes
 		WHERE table_id = $1
 		ORDER BY name
 	`
-	rows, err := pool.Query(ctx, q, req.GetTableId())
+	rows, err := pool.Query(ctx, q, tableID)
 	if err != nil {
 		return nil, err
 	}
@@ -150,9 +157,12 @@ func (s *LowcodeService) ListIndexes(ctx context.Context, req *lowcodev1.ListInd
 	var resp lowcodev1.ListIndexesResponse
 	for rows.Next() {
 		var idx lowcodev1.Index
-		if err := rows.Scan(&idx.Id, &idx.TableId, &idx.Name, &idx.PgIndex, &idx.ColumnIds, &idx.IsUnique, &idx.CreatedAt, &idx.UpdatedAt); err != nil {
+		var createdAt, updatedAt time.Time
+		if err := rows.Scan(&idx.Id, &idx.TableId, &idx.Name, &idx.PgIndex, &idx.ColumnIds, &idx.IsUnique, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
+		idx.CreatedAt = timestamppb.New(createdAt)
+		idx.UpdatedAt = timestamppb.New(updatedAt)
 		resp.Indexes = append(resp.Indexes, &idx)
 	}
 	return &resp, rows.Err()

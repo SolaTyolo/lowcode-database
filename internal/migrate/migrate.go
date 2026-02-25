@@ -66,7 +66,7 @@ func stepInitCore(ctx context.Context, pool *pgxpool.Pool) error {
 	stmts := []string{
 		`CREATE EXTENSION IF NOT EXISTS "pgcrypto";`,
 		`CREATE TABLE IF NOT EXISTS lc_types (
-			id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			id         TEXT PRIMARY KEY,
 			name       TEXT UNIQUE NOT NULL,
 			pg_type    TEXT NOT NULL,
 			config     JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -74,8 +74,7 @@ func stepInitCore(ctx context.Context, pool *pgxpool.Pool) error {
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		);`,
 		`CREATE TABLE IF NOT EXISTS lc_tables (
-			id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			name        TEXT NOT NULL,
+			name        TEXT PRIMARY KEY,
 			schema_name TEXT NOT NULL,
 			table_name  TEXT NOT NULL,
 			created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -84,9 +83,9 @@ func stepInitCore(ctx context.Context, pool *pgxpool.Pool) error {
 		);`,
 		`CREATE TABLE IF NOT EXISTS lc_columns (
 			id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			table_id    UUID NOT NULL REFERENCES lc_tables(id) ON DELETE CASCADE,
+			table_id    TEXT NOT NULL REFERENCES lc_tables(name) ON DELETE CASCADE,
 			name        TEXT NOT NULL,
-			type_id     UUID NOT NULL REFERENCES lc_types(id),
+			type_id     TEXT NOT NULL REFERENCES lc_types(id),
 			pg_column   TEXT NOT NULL,
 			is_nullable BOOLEAN NOT NULL DEFAULT TRUE,
 			position    INT NOT NULL,
@@ -98,7 +97,7 @@ func stepInitCore(ctx context.Context, pool *pgxpool.Pool) error {
 		);`,
 		`CREATE TABLE IF NOT EXISTS lc_indexes (
 			id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-			table_id   UUID NOT NULL REFERENCES lc_tables(id) ON DELETE CASCADE,
+			table_id   TEXT NOT NULL REFERENCES lc_tables(name) ON DELETE CASCADE,
 			name       TEXT NOT NULL,
 			pg_index   TEXT NOT NULL,
 			column_ids UUID[] NOT NULL,
@@ -109,14 +108,14 @@ func stepInitCore(ctx context.Context, pool *pgxpool.Pool) error {
 			UNIQUE (table_id, pg_index)
 		);`,
 		// Seed a few basic logical types (idempotent)
-		`INSERT INTO lc_types (name, pg_type, config)
+		`INSERT INTO lc_types (id, name, pg_type, config)
 		 VALUES
-		   ('text', 'text', '{}'::jsonb),
-		   ('number', 'numeric', '{}'::jsonb),
-		   ('bool', 'boolean', '{}'::jsonb),
-		   ('timestamp', 'timestamptz', '{}'::jsonb),
-		   ('json', 'jsonb', '{}'::jsonb)
-		 ON CONFLICT (name) DO NOTHING;`,
+		   ('text', 'text', 'text', '{}'::jsonb),
+		   ('number', 'number', 'numeric', '{}'::jsonb),
+		   ('bool', 'bool', 'boolean', '{}'::jsonb),
+		   ('timestamp', 'timestamp', 'timestamptz', '{}'::jsonb),
+		   ('json', 'json', 'jsonb', '{}'::jsonb)
+		 ON CONFLICT (id) DO NOTHING;`,
 	}
 
 	for _, stmt := range stmts {
@@ -130,11 +129,11 @@ func stepInitCore(ctx context.Context, pool *pgxpool.Pool) error {
 // stepSeedVirtualTypes 确保老库里也有 formula / relationship 这两种虚拟列类型。
 func stepSeedVirtualTypes(ctx context.Context, pool *pgxpool.Pool) error {
 	_, err := pool.Exec(ctx, `
-		INSERT INTO lc_types (name, pg_type, config)
+		INSERT INTO lc_types (id, name, pg_type, config)
 		VALUES
-		  ('formula', 'jsonb', '{"kind":"formula"}'::jsonb),
-		  ('relationship', 'jsonb', '{"kind":"relationship"}'::jsonb)
-		ON CONFLICT (name) DO NOTHING;
+		  ('formula', 'formula', 'jsonb', '{"kind":"formula"}'::jsonb),
+		  ('relationship', 'relationship', 'jsonb', '{"kind":"relationship"}'::jsonb)
+		ON CONFLICT (id) DO NOTHING;
 	`)
 	if err != nil {
 		return fmt.Errorf("stepSeedVirtualTypes: %w", err)

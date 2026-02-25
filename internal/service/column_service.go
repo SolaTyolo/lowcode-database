@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	lowcodev1 "github.com/solat/lowcode-database/gen/lowcode/v1"
 )
@@ -24,19 +26,24 @@ func (s *LowcodeService) AddColumn(ctx context.Context, req *lowcodev1.AddColumn
 	}
 	defer tx.Rollback(ctx)
 
-	var schemaName, tableName string
-	if err := tx.QueryRow(ctx, `SELECT schema_name, table_name FROM lc_tables WHERE id = $1`, req.GetTableId()).
-		Scan(&schemaName, &tableName); err != nil {
+	// 允许对外使用 table name 或内部 UUID 作为 table_id，这里解析出逻辑 name 和物理表信息。
+	var tableKey, schemaName, tableName string
+	if err := tx.QueryRow(ctx, `
+		SELECT name, schema_name, table_name
+		FROM lc_tables
+		WHERE name = $1`,
+		req.GetTableId(),
+	).Scan(&tableKey, &schemaName, &tableName); err != nil {
 		return nil, err
 	}
 
-	var pgType, kind string
+	var typeID, pgType, kind string
 	if err := tx.QueryRow(ctx, `
-		SELECT pg_type, COALESCE(config->>'kind', '')
+		SELECT id, pg_type, COALESCE(config->>'kind', '')
 		FROM lc_types
-		WHERE id = $1`,
+		WHERE name = $1`,
 		req.GetTypeId(),
-	).Scan(&pgType, &kind); err != nil {
+	).Scan(&typeID, &pgType, &kind); err != nil {
 		return nil, err
 	}
 
@@ -69,9 +76,9 @@ func (s *LowcodeService) AddColumn(ctx context.Context, req *lowcodev1.AddColumn
 		RETURNING id, table_id, name, type_id, pg_column, is_nullable, position, config, created_at, updated_at
 	`
 	row := tx.QueryRow(ctx, ins,
-		req.GetTableId(),
+		tableKey,
 		req.GetName(),
-		req.GetTypeId(),
+		typeID,
 		pgColumn,
 		req.GetIsNullable(),
 		req.GetPosition(),
@@ -80,9 +87,12 @@ func (s *LowcodeService) AddColumn(ctx context.Context, req *lowcodev1.AddColumn
 
 	var c lowcodev1.Column
 	var cfg map[string]any
-	if err := row.Scan(&c.Id, &c.TableId, &c.Name, &c.TypeId, &c.PgColumn, &c.IsNullable, &c.Position, &cfg, &c.CreatedAt, &c.UpdatedAt); err != nil {
+	var createdAt, updatedAt time.Time
+	if err := row.Scan(&c.Id, &c.TableId, &c.Name, &c.TypeId, &c.PgColumn, &c.IsNullable, &c.Position, &cfg, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
+	c.CreatedAt = timestamppb.New(createdAt)
+	c.UpdatedAt = timestamppb.New(updatedAt)
 	if cfg != nil {
 		c.Config = toStruct(cfg)
 	}
@@ -98,13 +108,17 @@ func (s *LowcodeService) ListColumns(ctx context.Context, req *lowcodev1.ListCol
 	if err != nil {
 		return nil, err
 	}
+	tableName, err := s.resolveTableName(ctx, pool, req.GetTableId())
+	if err != nil {
+		return nil, err
+	}
 	const q = `
 		SELECT id, table_id, name, type_id, pg_column, is_nullable, position, config, created_at, updated_at
 		FROM lc_columns
 		WHERE table_id = $1
 		ORDER BY position
 	`
-	rows, err := pool.Query(ctx, q, req.GetTableId())
+	rows, err := pool.Query(ctx, q, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -114,9 +128,12 @@ func (s *LowcodeService) ListColumns(ctx context.Context, req *lowcodev1.ListCol
 	for rows.Next() {
 		var c lowcodev1.Column
 		var cfg map[string]any
-		if err := rows.Scan(&c.Id, &c.TableId, &c.Name, &c.TypeId, &c.PgColumn, &c.IsNullable, &c.Position, &cfg, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		var createdAt, updatedAt time.Time
+		if err := rows.Scan(&c.Id, &c.TableId, &c.Name, &c.TypeId, &c.PgColumn, &c.IsNullable, &c.Position, &cfg, &createdAt, &updatedAt); err != nil {
 			return nil, err
 		}
+		c.CreatedAt = timestamppb.New(createdAt)
+		c.UpdatedAt = timestamppb.New(updatedAt)
 		if cfg != nil {
 			c.Config = toStruct(cfg)
 		}
@@ -140,7 +157,7 @@ func (s *LowcodeService) DeleteColumn(ctx context.Context, req *lowcodev1.Delete
 	if err := tx.QueryRow(ctx, `
 		SELECT c.table_id, t.schema_name, t.table_name, c.pg_column, COALESCE(ty.config->>'kind', '')
 		FROM lc_columns c
-		JOIN lc_tables t ON c.table_id = t.id
+		JOIN lc_tables t ON c.table_id = t.name
 		JOIN lc_types ty ON c.type_id = ty.id
 		WHERE c.id = $1`,
 		req.GetId(),
@@ -196,9 +213,12 @@ func (s *LowcodeService) UpdateColumn(ctx context.Context, req *lowcodev1.Update
 		isNullable = &v
 	}
 	row := pool.QueryRow(ctx, q, req.GetId(), req.GetName(), isNullable, req.GetPosition(), req.GetConfig().AsMap())
-	if err := row.Scan(&c.Id, &c.TableId, &c.Name, &c.TypeId, &c.PgColumn, &c.IsNullable, &c.Position, &cfgMap, &c.CreatedAt, &c.UpdatedAt); err != nil {
+	var createdAt, updatedAt time.Time
+	if err := row.Scan(&c.Id, &c.TableId, &c.Name, &c.TypeId, &c.PgColumn, &c.IsNullable, &c.Position, &cfgMap, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
+	c.CreatedAt = timestamppb.New(createdAt)
+	c.UpdatedAt = timestamppb.New(updatedAt)
 	if cfgMap != nil {
 		c.Config = toStruct(cfgMap)
 	}

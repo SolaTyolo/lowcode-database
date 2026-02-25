@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/types/known/structpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	lowcodev1 "github.com/solat/lowcode-database/gen/lowcode/v1"
 )
@@ -18,23 +21,46 @@ type columnMeta struct {
 	TableId    string
 	Name       string
 	TypeId     string
+	PgType     string // 实际 PG 类型，用于写入时空字符串转 NULL
 	PgColumn   string
 	IsNullable bool
 	Position   int32
 }
 
-func (s *LowcodeService) loadColumns(ctx context.Context, pool *pgxpool.Pool, tableID string) ([]columnMeta, string, string, error) {
+// resolveTableName 接受对外使用的 table 标识（可以是内部 UUID，也可以是逻辑 name），
+// 并解析成 lc_tables.name，供以 name 作为外键的表（如 lc_columns）使用。
+func (s *LowcodeService) resolveTableName(ctx context.Context, pool *pgxpool.Pool, tableIdentifier string) (string, error) {
+	if tableIdentifier == "" {
+		return "", fmt.Errorf("table_id is required")
+	}
 	const q = `
-		SELECT c.id, c.table_id, c.name, c.type_id, c.pg_column, c.is_nullable, c.position,
+		SELECT name
+		FROM lc_tables
+		WHERE name = $1
+	`
+	var name string
+	if err := pool.QueryRow(ctx, q, tableIdentifier).Scan(&name); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+func (s *LowcodeService) loadColumns(ctx context.Context, pool *pgxpool.Pool, tableID string) ([]columnMeta, string, string, error) {
+	resolvedName, err := s.resolveTableName(ctx, pool, tableID)
+	if err != nil {
+		return nil, "", "", err
+	}
+	const q = `
+		SELECT c.id, c.table_id, c.name, c.type_id, ty.pg_type, c.pg_column, c.is_nullable, c.position,
 		       t.schema_name, t.table_name
 		FROM lc_columns c
-		JOIN lc_tables t ON c.table_id = t.id
+		JOIN lc_tables t ON c.table_id = t.name
 		JOIN lc_types ty ON c.type_id = ty.id
 		WHERE c.table_id = $1
 		  AND COALESCE(ty.config->>'kind', '') NOT IN ('formula', 'relationship')
 		ORDER BY c.position
 	`
-	rows, err := pool.Query(ctx, q, tableID)
+	rows, err := pool.Query(ctx, q, resolvedName)
 	if err != nil {
 		return nil, "", "", err
 	}
@@ -44,7 +70,7 @@ func (s *LowcodeService) loadColumns(ctx context.Context, pool *pgxpool.Pool, ta
 	var schemaName, tableName string
 	for rows.Next() {
 		var c columnMeta
-		if err := rows.Scan(&c.Id, &c.TableId, &c.Name, &c.TypeId, &c.PgColumn, &c.IsNullable, &c.Position, &schemaName, &tableName); err != nil {
+		if err := rows.Scan(&c.Id, &c.TableId, &c.Name, &c.TypeId, &c.PgType, &c.PgColumn, &c.IsNullable, &c.Position, &schemaName, &tableName); err != nil {
 			return nil, "", "", err
 		}
 		cols = append(cols, c)
@@ -69,9 +95,13 @@ func (s *LowcodeService) loadRelationshipColumns(ctx context.Context, pool *pgxp
 	if len(columnIDs) == 0 {
 		return nil, nil
 	}
+	resolvedName, err := s.resolveTableName(ctx, pool, tableID)
+	if err != nil {
+		return nil, err
+	}
 	placeholders := make([]string, len(columnIDs))
 	args := make([]any, 0, 1+len(columnIDs))
-	args = append(args, tableID)
+	args = append(args, resolvedName)
 	for i := range columnIDs {
 		placeholders[i] = fmt.Sprintf("$%d", len(args)+1)
 		args = append(args, columnIDs[i])
@@ -121,6 +151,23 @@ func (s *LowcodeService) loadRelationshipColumns(ctx context.Context, pool *pgxp
 
 // valueToAny 把 protobuf Value 转成可以写入 PG 的 Go 值。
 func valueToAny(v *lowcodev1.Value) any {
+	return valueToAnyForColumn(v, "")
+}
+
+// valueToAnyForColumn 根据列 PG 类型转换：空字符串写入 numeric/timestamptz/boolean 等时转为 nil (NULL)。
+func valueToAnyForColumn(v *lowcodev1.Value, pgType string) any {
+	raw := valueToAnyRaw(v)
+	// 空字符串且列为非 text 类型时写 NULL，避免 "invalid input syntax for type numeric: \"\""
+	if s, ok := raw.(string); ok && s == "" && pgType != "" && pgType != "text" && pgType != "jsonb" && pgType != "json" {
+		return nil
+	}
+	return raw
+}
+
+func valueToAnyRaw(v *lowcodev1.Value) any {
+	if v == nil {
+		return nil
+	}
 	switch x := v.Kind.(type) {
 	case *lowcodev1.Value_StringValue:
 		return x.StringValue
@@ -140,6 +187,7 @@ func valueToAny(v *lowcodev1.Value) any {
 }
 
 // anyToValue 把 PG 返回的值转成 protobuf Value，简单处理常见类型。
+// PG numeric/int 等可能被 pgx 扫成 pgtype.Numeric，需转成 float64 再返回，否则会变成 "{69 -1 false finite true}" 这种 struct 字符串。
 func anyToValue(v any) *lowcodev1.Value {
 	switch t := v.(type) {
 	case string:
@@ -148,11 +196,32 @@ func anyToValue(v any) *lowcodev1.Value {
 		return &lowcodev1.Value{Kind: &lowcodev1.Value_BytesValue{BytesValue: t}}
 	case bool:
 		return &lowcodev1.Value{Kind: &lowcodev1.Value_BoolValue{BoolValue: t}}
+	case time.Time:
+		return &lowcodev1.Value{Kind: &lowcodev1.Value_TimestampValue{TimestampValue: timestamppb.New(t)}}
 	case int32, int64, float32, float64:
 		return &lowcodev1.Value{Kind: &lowcodev1.Value_NumberValue{NumberValue: toFloat64(t)}}
+	case pgtype.Numeric:
+		if f, err := numericToFloat64(t); err == nil {
+			return &lowcodev1.Value{Kind: &lowcodev1.Value_NumberValue{NumberValue: f}}
+		}
+	case *pgtype.Numeric:
+		if t != nil {
+			if f, err := numericToFloat64(*t); err == nil {
+				return &lowcodev1.Value{Kind: &lowcodev1.Value_NumberValue{NumberValue: f}}
+			}
+		}
 	default:
 		return &lowcodev1.Value{Kind: &lowcodev1.Value_StringValue{StringValue: fmt.Sprint(v)}}
 	}
+	return &lowcodev1.Value{Kind: &lowcodev1.Value_StringValue{StringValue: fmt.Sprint(v)}}
+}
+
+func numericToFloat64(n pgtype.Numeric) (float64, error) {
+	f8, err := n.Float64Value()
+	if err != nil || !f8.Valid {
+		return 0, fmt.Errorf("invalid numeric")
+	}
+	return f8.Float64, nil
 }
 
 func toFloat64(v any) float64 {
